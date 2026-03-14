@@ -1,0 +1,307 @@
+---
+title: "Análise de Correspondencia"
+author: "Guilherme Henrique Hispagol Bicho"
+date: "2026-03-14"
+output: html_document
+---
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+###############################################
+## Pacotes
+############################################################
+#install.packages("devtools")  # se ainda não tiver
+#devtools::install_github("mortenarendt/data4consumerscience")
+library(tidyverse)
+library(kableExtra)
+# install.packages(c("FactoMineR", "factoextra"))
+library(FactoMineR)
+library(factoextra)
+
+############################################################
+# 1) Carregar dados
+############################################################
+library(data4consumerscience)
+library(ca)
+data("beercata")
+# Ver a documentação
+#help("beercata")
+#??beercata
+
+# Identificar atributos (tudo menos Beer e Consumer)
+atributos <- names(beercata)[-(1:2)]
+
+###############################################
+## 1) Criar tabela de contingência Beer x Atributos
+###############################################
+tabela_cata <- aggregate(
+  beercata[atributos],
+  by = list(Beer = beercata$Beer),
+  FUN = sum
+)
+
+rownames(tabela_cata) <- tabela_cata$Beer
+tabela_cata$Beer <- NULL
+
+tabela <- as.matrix(tabela_cata)
+
+###############################################
+## 2) Tabela de frequências absolutas
+###############################################
+N <- tabela
+N
+
+###############################################
+## 3) Tabela de frequências relativas
+###############################################
+n_total <- sum(N)
+P <- N / n_total; P
+
+###############################################
+## 4) Massas de linhas e colunas
+###############################################
+r <- rowSums(P)   # massas das linhas
+c <- colSums(P)   # massas das colunas
+
+Dr_inv <- diag(1/sqrt(r))
+Dc_inv <- diag(1/sqrt(c))
+
+###############################################
+## 5) Matriz central da CA
+##    S = Dr^{-1/2} (P - r c^T) Dc^{-1/2}
+###############################################
+S <- Dr_inv %*% (P - r %*% t(c)) %*% Dc_inv
+
+###############################################
+## 6) SVD
+###############################################
+sv <- svd(S)
+U <- sv$u
+Delta <- sv$d
+V <- sv$v
+
+###############################################
+## 7) Autovalores e inércia
+###############################################
+eigenvalues <- Delta^2
+total_inertia <- sum(eigenvalues)
+prop_inertia <- eigenvalues / total_inertia
+cum_inertia <- cumsum(prop_inertia)
+
+###############################################
+## 7.1) Gráfico de Cotovelo – Scree Plot (manual)
+###############################################
+par(mfrow=c(1,2))
+
+# Barras
+barplot(
+  eigenvalues,
+  main = "Scree Plot (Autovalores)",
+  xlab = "Dimensão",
+  ylab = "Autovalor"
+)
+
+# Linhas + pontos
+plot(
+  eigenvalues, type="b", pch=19,
+  main="Scree Plot (Linha)",
+  xlab="Dimensão", ylab="Autovalor"
+)
+
+par(mfrow=c(1,1))
+
+###############################################
+## 7.2) Gráfico da Inércia Acumulada
+###############################################
+plot(
+  cum_inertia, type="b", pch=19,
+  ylim=c(0,1),
+  main="Inércia Acumulada",
+  xlab="Dimensão",
+  ylab="Proporção Acumulada"
+)
+abline(h=0.8, col="red", lty=2)  # linha de referência 80%
+
+###############################################
+## 8) Coordenadas fatoriais
+###############################################
+F <- Dr_inv %*% U %*% diag(Delta)   # linhas
+G <- Dc_inv %*% V %*% diag(Delta)   # colunas
+
+###############################################
+## 9) Contribuições
+###############################################
+ctr_rows <- (r * F^2) / eigenvalues    # contribuições das linhas
+ctr_cols <- (c * G^2) / eigenvalues    # contribuições das colunas
+
+###############################################
+## 10) cos² — qualidade da representação
+###############################################
+cos2_rows <- F^2 / rowSums(F^2)
+cos2_cols <- G^2 / colSums(G^2)
+
+###############################################
+## 11) Teste qui-quadrado
+###############################################
+expected <- r %*% t(c)
+chisq <- n_total * sum((P - expected)^2 / expected)
+
+df <- (nrow(N) - 1) * (ncol(N) - 1)
+p_value <- 1 - pchisq(chisq, df)
+
+###############################################
+## 12) Gráfico biplot simples
+###############################################
+plot(F[,1], F[,2],
+     pch = 19, col = "blue",
+     xlab = "Dim 1", ylab = "Dim 2",
+     main = "CA - Biplot (Linhas e Colunas)",
+     xlim = range(c(F[,1], G[,1])),
+     ylim = range(c(F[,2], G[,2])))
+
+text(F[,1], F[,2], labels = rownames(F), pos = 3, col = "blue")
+
+points(G[,1], G[,2], pch = 17, col = "red")
+text(G[,1], G[,2], labels = colnames(G), pos = 3, col = "red")
+
+###############################################
+## 12.1) Biplot via Factoextra com eixos invertidos
+###############################################
+res.ca <- CA(tabela, graph=FALSE)
+res_inv <- res.ca
+
+res_inv$row$coord <- -res.ca$row$coord
+res_inv$col$coord <- -res.ca$col$coord
+
+fviz_ca_biplot(
+  res_inv,
+  map = "symmetric",
+  repel = TRUE,
+  title = "Biplot Simétrico (Eixos Invertidos)"
+)
+
+###############################################
+## 13) Exibir resultados numéricos
+###############################################
+cat("Autovalores:\n")
+print(eigenvalues)
+
+cat("\nProporção da inércia:\n")
+print(prop_inertia)
+
+cat("\nQui-quadrado:", chisq, "\n")
+cat("Graus de liberdade:", df, "\n")
+cat("p-valor:", p_value, "\n")
+
+
+
+###############################################
+## 13) Exibir resultados
+###############################################
+cat("Autovalores:\n")
+print(eigenvalues)
+
+cat("\nProporção da inércia:\n")
+print(prop_inertia)
+
+cat("\nQui-quadrado:", chisq, "\n")
+cat("Graus de liberdade:", df, "\n")
+cat("p-valor:", p_value, "\n")
+
+
+
+# Desativar notação científica temporariamente
+options(scipen = 999)
+
+cat("Autovalores:\n")
+print(format(eigenvalues, scientific = FALSE))
+
+cat("\nProporção da inércia:\n")
+print(format(prop_inertia, scientific = FALSE))
+
+cat("\nQui-quadrado:", format(chisq, scientific = FALSE), "\n")
+cat("Graus de liberdade:", format(df, scientific = FALSE), "\n")
+cat("p-valor:", format(p_value, scientific = FALSE), "\n")
+cat("p-valor:", format(p_value, scientific = TRUE), "\n")
+cat("p-valor:", signif(p_value, digits = 50), "\n")
+sprintf("p-valor: %.10e", p_value)
+
+
+eigen_df <- as.data.frame(res.ca$eig)
+colnames(eigen_df) <- c("Autovalor", "% da Variância", "% Acumulado")
+
+kable(eigen_df, caption = "Autovalores e Inércia") %>%
+  kable_styling(full_width = FALSE)
+
+
+library(factoextra)
+library(ggplot2)
+library(patchwork)
+
+# Dados dos autovalores
+eig <- as.data.frame(res.ca$eig)
+colnames(eig) <- c("Eigenvalue", "VariancePercent")
+eig$CumVariance <- cumsum(eig$VariancePercent)
+eig$Dim <- paste0("Dim", 1:nrow(eig))
+
+# Gráfico 1 — Scree Plot (%)
+g1 <- fviz_screeplot(
+  res.ca,
+  addlabels = TRUE,
+  ylim = c(0, 100),
+  main = "Scree Plot - Autovalores (%)"
+)
+
+# Gráfico 2 — Variância Acumulada
+g2 <- ggplot(eig, aes(x = Dim, y = CumVariance)) +
+  geom_col(fill = "steelblue") +
+  geom_point(size = 3) +
+  geom_line(aes(group = 1)) +
+  geom_text(aes(label = paste0(round(CumVariance, 1), "%")),
+            vjust = -0.6, size = 4) +
+  ylim(0, 100) +
+  labs(
+    title = "Variância Acumulada",
+    x = "Dimensão",
+    y = "Variância Acumulada (%)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"))
+
+# Junta lado a lado
+g1 + g2
+
+
+fviz_nbclust(
+  res.ca$row$coord[,1:2],
+  kmeans,
+  method = "wss",
+  k.max = 5
+)
+
+
+set.seed(123)
+
+clusters <- kmeans(res.ca$row$coord[,1:2], centers = 3)
+
+fviz_ca_biplot(
+  res.ca,
+  map = "symmetric",
+  repel = TRUE,
+  col.row = factor(clusters$cluster),
+  col.col = "black",
+  pointsize = 4,
+  labelsize = 4,
+  addEllipses = TRUE,
+  ellipse.level = 0.95,
+  ellipse.type = "confidence",
+  palette = "jco",
+  ggtheme = theme_minimal(),
+  title = "Correspondence Analysis Biplot with 3 Clusters"
+)
+
+###############################################
+## FIM
+###############################################
+```
+
+
